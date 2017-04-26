@@ -5,6 +5,7 @@ bitucketMigrate for mirroring projects from source to target system
 
 import configparser
 import requests
+import git, os, shutil
 
 
 def get_projects(system, auth):
@@ -108,6 +109,15 @@ def get_project_repos(system, auth, project):
         result.append(rep)
     return result
 
+def get_project_repo(system, auth, project, slug):
+    """
+    This returns the repo in project with slug
+    """
+    req = requests.get("{}/projects/{}/repos/{}".format(system, project.get('key'), slug),
+                       auth=auth, verify=SSL_VERIFY)
+    result = req.json()
+    return result
+
 
 def add_project_repo(system, auth, repo):
     """
@@ -176,12 +186,12 @@ def clone_project(target, auth, project, details):
     """
     This creates an exact mirror of project with the passed in repos, groups and users
     """
-    if not add_project(target, auth, project):
-        return False
+    print(add_project(target, auth, project))
     for group in details.get('groups'):
         add_project_group(target, auth, project, group)
     for user in details.get('users'):
         add_project_user(target, auth, project, user)
+
     for repo in details.get('repos'):
         rgroups = repo['permissions']['groups']['values']
         rusers = repo['permissions']['users']['values']
@@ -191,7 +201,39 @@ def clone_project(target, auth, project, details):
             add_project_repo_group(target, auth, rep, rgroup)
         for ruser in rusers:
             add_project_repo_user(target, auth, rep, ruser)
-    return True
+        trep = get_project_repo(target, auth, project, rep['slug'])
+        clone_repo_source(rep, trep)
+
+
+def clone_repo_source(repo, target_repo):
+    """
+    This gets all brnaches and tags from the source remote and pushes to target_url
+    """
+    print('Migrating Source for Repo', repo['name'])
+    dir_name = 'temp/{}/{}'.format(repo['project']['key'], repo['slug'])
+    for link in repo.get('links').get('clone'):
+        if link.get('name') == 'http':
+            remote_url = link.get('href')
+
+    for tlink in target_repo.get('links').get('clone'):
+        if tlink.get('name') == 'http':
+            target_url = tlink.get('href')
+
+    if os.path.isdir(dir_name):
+        shutil.rmtree(dir_name)
+
+    os.makedirs(dir_name)
+
+    repo = git.Repo.init(dir_name)
+    origin = repo.create_remote('origin', remote_url)
+    origin.fetch()
+    for branch in repo.remotes.origin.fetch():
+        print('Checking out Branch ', branch.name[7:])
+        repo.git.checkout(branch.name[7:])
+    origin.set_url(target_url)
+    print('Pushing to new Remote')
+    origin.push(all=True)
+    origin.push(tags=True)
 
 
 def main():
@@ -208,7 +250,6 @@ def main():
         groups = get_project_groups(SOURCE_API, SOURCE_AUTH, project)
         users = get_project_users(SOURCE_API, SOURCE_AUTH, project)
         repos = get_project_repos(SOURCE_API, SOURCE_AUTH, project)
-
         clone_project(TARGET_API, TARGET_AUTH, project,
                       {'groups': groups,
                        'users': users,
