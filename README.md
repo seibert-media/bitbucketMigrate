@@ -3,8 +3,8 @@ This little python script allows mirroring all projects including permissions an
 It creates copies of projects and it's repos and then does a local checkout of each repo/branch to push it back to the new remote.
 
 ### Requirements
-Python 3.5.3
-Git 2.2.x
+- Python 3.5.3
+- Git 2.2.x
 
 ### Usage
 Define the Systems in migrate.cfg and set an admin user for both systems.
